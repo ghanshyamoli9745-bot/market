@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>API Test Widget</title>
+    <style>
+        body { background: #050608; color: #e6edf3; font-family: sans-serif; padding: 20px; }
+        .card { border: 1px solid #30363d; padding: 15px; border-radius: 8px; max-width: 400px; }
+        .positive { color: #3fb950; }
+        .negative { color: #f85149; }
+        pre { background: #0d1117; padding: 10px; border-radius: 4px; overflow: auto; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h3>Universal API Test</h3>
+        <input type="text" id="api-key" placeholder="Paste API Key Here" style="width:100%; padding:8px; margin-bottom:10px; background:#0d1117; border:1px solid #30363d; color:white;">
+        <button onclick="testMarket()" style="padding:8px 15px; cursor:pointer;">Test Market API</button>
+        <button onclick="testSectors()" style="padding:8px 15px; cursor:pointer;">Test Sector API</button>
+        <div id="output" style="margin-top:15px;"></div>
+    </div>
+
+    <script>
+        async function testMarket() {
+            const key = document.getElementById('api-key').value;
+            const out = document.getElementById('output');
+            out.innerHTML = "Fetching...";
+            try {
+                const res = await fetch(`/api/v1/market?api_key=${key}`);
+                const data = await res.json();
+                if (res.ok) {
+                    out.innerHTML = `<p class="positive">Success! Found ${data.prices.length} prices.</p><pre>${JSON.stringify(data.summary, null, 2)}</pre>`;
+                } else {
+                    out.innerHTML = `<p class="negative">Error: ${data.detail}</p>`;
+                }
+            } catch (e) { out.innerHTML = "Request failed"; }
+        }
+
+        async function testSectors() {
+            const key = document.getElementById('api-key').value;
+            const out = document.getElementById('output');
+            out.innerHTML = "Fetching...";
+            try {
+                const res = await fetch(`/api/v1/sectors?api_key=${key}`);
+                const data = await res.json();
+                if (res.ok) {
+                    out.innerHTML = `<p class="positive">Success! Found ${data.sectors.length} sectors.</p>`;
+                } else {
+                    out.innerHTML = `<p class="negative">Error: ${data.detail}</p>`;
+                }
+            } catch (e) { out.innerHTML = "Request failed"; }
+        }
+    </script>
+</body>
+</html>
