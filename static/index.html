@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NEPSE PRO TERMINAL | Financial Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <!-- Top Terminal Header -->
+    <header class="terminal-header">
+        <div class="brand">
+            <div class="logo-box">N</div>
+            <h1>NEPSE<span>PRO</span> TERMINAL</h1>
+        </div>
+        
+        <div class="market-status-bar">
+            <div class="status-item">
+                <span id="market-status-dot" class="dot"></span>
+                <span id="market-status-text">CONNECTING</span>
+            </div>
+            <div class="status-item">
+                <i data-lucide="clock" style="width:14px; height:14px; color:var(--accent)"></i>
+                <span id="digital-clock" class="positive-text">00:00:00</span>
+            </div>
+            <div class="status-item">
+                <button id="api-btn" class="header-link">[ <i data-lucide="key" style="width:12px; display:inline"></i> API ACCESS ]</button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Body Container -->
+    <div class="terminal-body">
+        <!-- Sidebar Navigation -->
+        <nav class="sidebar">
+            <div class="nav-item active" data-module="market" title="Market Dashboard"><i data-lucide="bar-chart-2"></i></div>
+            <div class="nav-item" data-module="watchlist" title="Watchlist"><i data-lucide="star"></i></div>
+            <div class="nav-item" data-module="alerts" title="Alerts"><i data-lucide="bell"></i></div>
+            <div class="nav-item" data-module="portfolio" style="margin-top:auto" title="Portfolio"><i data-lucide="briefcase"></i></div>
+            <div class="nav-item" data-module="settings" title="Settings"><i data-lucide="settings"></i></div>
+        </nav>
+
+        <!-- Stats Pane (Left) -->
+        <aside class="pane-stats">
+            <div class="section-header">Global Indices</div>
+            <div class="index-card">
+                <h2 id="nepse-index">0.00</h2>
+                <div class="change-row">
+                    <span id="nepse-change" class="positive-text">0.00 (0.00%)</span>
+                </div>
+            </div>
+            
+            <div class="mini-stat-grid">
+                <div class="mini-stat">
+                    <label>TURNOVER</label>
+                    <span id="total-turnover">Rs. 0</span>
+                </div>
+                <div class="mini-stat">
+                    <label>SCRIPTS</label>
+                    <span id="total-scripts">0</span>
+                </div>
+            </div>
+
+            <div class="section-header">Live Sectors</div>
+            <div id="sectors-list" class="rank-list"></div>
+
+            <div class="section-header">Top 10 Gainers</div>
+            <div id="gainers-list" class="rank-list"></div>
+
+            <div class="section-header">Top 10 Losers</div>
+            <div id="losers-list" class="rank-list"></div>
+        </aside>
+
+        <!-- Main Workspace Pane (Right) -->
+        <main class="pane-main">
+            <!-- Market Module -->
+            <div id="module-market" class="module active">
+                <div class="workspace-controls">
+                    <div class="tab-nav">
+                        <button class="tab active" data-filter="LIVE MARKET">LIVE MARKET</button>
+                        <button class="tab" data-filter="TOP GAINERS">TOP GAINERS</button>
+                        <button class="tab" data-filter="TOP LOSERS">TOP LOSERS</button>
+                    </div>
+                    <div class="search-bar">
+                        <i data-lucide="search"></i>
+                        <input type="text" id="search-input" placeholder="Search symbol, company or sector...">
+                    </div>
+                </div>
+                <div class="table-wrapper">
+                    <table id="market-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 50px;"></th>
+                                <th>SYMBOL</th>
+                                <th>LTP</th>
+                                <th>CHG</th>
+                                <th>% CHG</th>
+                                <th>VOLUME</th>
+                                <th>ACTION</th>
+                            </tr>
+                        </thead>
+                        <tbody id="main-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Portfolio Module -->
+            <div id="module-portfolio" class="module">
+                <div class="workspace-controls">
+                    <div class="portfolio-summary">
+                        <div class="p-summary-item">
+                            <label>TOTAL VALUE</label>
+                            <span id="p-total-value">Rs. 0.00</span>
+                        </div>
+                        <div class="p-summary-item">
+                            <label>TOTAL PROFIT/LOSS</label>
+                            <span id="p-total-pl" class="font-mono">0.00</span>
+                        </div>
+                    </div>
+                    <button class="btn-analyze" id="add-to-portfolio-btn">+ ADD HOLDING</button>
+                </div>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>SYMBOL</th>
+                                <th>UNITS</th>
+                                <th>BUY PRICE</th>
+                                <th>LTP</th>
+                                <th>VALUE</th>
+                                <th>P/L</th>
+                                <th>% CHG</th>
+                                <th>ACTION</th>
+                            </tr>
+                        </thead>
+                        <tbody id="portfolio-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Alerts Module -->
+            <div id="module-alerts" class="module">
+                <div class="section-header" style="background:var(--bg-panel); border-bottom:1px solid var(--border-main); padding: 1.5rem">Active Price Alerts</div>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>SYMBOL</th>
+                                <th>TARGET PRICE</th>
+                                <th>CONDITION</th>
+                                <th>STATUS</th>
+                                <th>ACTION</th>
+                            </tr>
+                        </thead>
+                        <tbody id="alerts-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Settings Module -->
+            <div id="module-settings" class="module">
+                <div class="settings-grid">
+                    <div class="settings-card">
+                        <h3>Profile & Preferences</h3>
+                        <div class="setting-item">
+                            <label>Client ID</label>
+                            <code id="display-client-id">---</code>
+                        </div>
+                        <div class="setting-item">
+                            <label>Data Refresh Rate</label>
+                            <span>Real-Time (Firebase)</span>
+                        </div>
+                    </div>
+                    <div class="settings-card">
+                        <h3>Notifications</h3>
+                        <div class="setting-item">
+                            <label>Browser Alerts</label>
+                            <button class="btn-analyze" onclick="requestNotificationPermission()">Enable</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Ticker Footer -->
+    <footer class="terminal-footer">
+        <div id="ticker" class="ticker-content">
+            <span class="ticker-item">INITIALIZING DATA STREAM...</span>
+        </div>
+    </footer>
+
+    <!-- Analysis Modal -->
+    <div id="detail-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <h2 id="modal-company-name">COMPANY NAME</h2>
+                    <span id="modal-company-symbol" class="symbol-tag">SYMBOL</span>
+                </div>
+                <span class="close-modal">&times;</span>
+            </div>
+            
+            <div class="modal-body-grid">
+                <div id="company-chart" style="height: 500px; background: #000; border-radius: 8px;"></div>
+                <div class="fundamental-panel">
+                    <div class="section-header" style="margin-top:0">Fundamentals</div>
+                    <div id="fundamental-grid" class="mini-stat-grid" style="grid-template-columns: 1fr;"></div>
+                    <div class="section-header">Business Profile</div>
+                    <p id="m-business" class="analysis-p"></p>
+                    <div class="section-header">Growth Outlook</div>
+                    <p id="m-future" class="analysis-p"></p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Portfolio Add Modal -->
+    <div id="portfolio-modal" class="modal">
+        <div class="modal-content" style="max-width: 400px;">
+            <div class="modal-header">
+                <h2>Add New Holding</h2>
+                <span class="close-modal">&times;</span>
+            </div>
+            <div class="form-group">
+                <label>Symbol</label>
+                <input type="text" id="p-input-symbol" placeholder="e.g. NICA" class="terminal-input">
+            </div>
+            <div class="form-group">
+                <label>Units</label>
+                <input type="number" id="p-input-units" placeholder="100" class="terminal-input">
+            </div>
+            <div class="form-group">
+                <label>Avg. Buy Price</label>
+                <input type="number" id="p-input-price" placeholder="500.00" class="terminal-input">
+            </div>
+            <button id="p-save-btn" class="primary-btn" style="width:100%; margin-top:1rem">SAVE TO PORTFOLIO</button>
+        </div>
+    </div>
+
+    <!-- API Modal -->
+    <div id="api-modal" class="modal">
+        <div class="modal-content" style="max-width: 500px;">
+            <div class="modal-header">
+                <h2>Terminal Access Control</h2>
+                <span class="close-modal">&times;</span>
+            </div>
+            <div id="api-auth-section">
+                <input type="email" id="api-email-input" placeholder="Developer Email" class="terminal-input">
+                <button id="verify-email-btn" class="primary-btn" style="width:100%; margin-top:1rem">VERIFY IDENTITY</button>
+            </div>
+            <div id="api-key-display" style="display: none;">
+                <label class="input-label">PERSISTENT API KEY</label>
+                <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
+                    <input type="password" id="api-key-code" readonly class="terminal-input" style="flex:1">
+                    <button id="toggle-key-btn" class="btn-analyze">SHOW</button>
+                    <button id="copy-btn" class="btn-analyze">COPY</button>
+                </div>
+                <button id="generate-btn" class="primary-btn" style="width:100%">GENERATE NEW ACCESS KEY</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="loader" class="loader-overlay">
+        <div class="spinner"></div>
+        <p class="loader-text">SYNCING TERMINAL DATA...</p>
+    </div>
+
+    <div id="notification-container" class="notification-container"></div>
+
+    <script src="/static/script.js"></script>
+    <script>lucide.createIcons();</script>
+</body>
+</html>
