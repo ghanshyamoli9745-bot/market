@@ -81,16 +81,15 @@
             padding: 1rem;
             border-bottom: 1px solid rgba(255,255,255,0.03);
         }
+        tbody tr { cursor: pointer; transition: 0.2s; }
+        tbody tr:hover { background: rgba(47, 129, 247, 0.05); }
         .symbol {
             background: #161b22;
             padding: 0.2rem 0.5rem;
             border-radius: 4px;
             color: var(--accent);
             font-family: 'JetBrains Mono', monospace;
-            cursor: pointer;
-            transition: 0.2s;
         }
-        .symbol:hover { background: var(--accent); color: white; }
         .price { font-family: 'JetBrains Mono', monospace; }
         .positive { color: var(--success); }
         .negative { color: var(--danger); }
@@ -126,25 +125,34 @@
             width: 100%; height: 100%;
             background: rgba(0,0,0,0.9);
             z-index: 1000;
-            backdrop-filter: blur(10px);
+            backdrop-filter: blur(5px);
         }
         .modal-content {
-            background: var(--card);
             width: 90%;
-            max-width: 1000px;
-            margin: 5vh auto;
+            max-width: 1200px;
+            margin: 2vh auto;
+            background: var(--card);
             border: 1px solid var(--border);
             border-radius: 12px;
             padding: 20px;
+            height: 90vh;
+            display: flex;
+            flex-direction: column;
         }
         .modal-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
+            display: flex; justify-content: space-between; align-items: center;
+            padding-bottom: 15px; border-bottom: 1px solid var(--border);
             margin-bottom: 20px;
         }
-        .close { color: var(--text-dim); cursor: pointer; font-size: 24px; }
-        .close:hover { color: white; }
+        #chart-container { flex: 1; border-radius: 8px; overflow: hidden; background: #000; }
+        .fundamental-bar {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+            margin-top: 20px;
+            padding-top: 15px;
+            border-top: 1px solid var(--border);
+        }
     </style>
 </head>
 <body>
@@ -200,10 +208,13 @@
     <div id="chart-modal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h2 id="chart-title" style="margin:0">CHART</h2>
-                <span class="close" id="close-modal">&times;</span>
+                <h2 id="modal-title">Company Technical Chart</h2>
+                <button onclick="closeModal()" style="background:none; border:none; color:white; font-size: 1.5rem; cursor:pointer;">&times;</button>
             </div>
-            <div id="chart-container" style="height: 500px;"></div>
+            <div id="chart-container"></div>
+            <div class="fundamental-bar" id="fundamental-bar">
+                <!-- Fundamentals load here -->
+            </div>
         </div>
     </div>
 
@@ -212,6 +223,7 @@
         const BASE_URL = 'https://market-stock-1n2m.onrender.com';
         
         let allData = [];
+        let chartInstance = null;
 
         async function updateMarket() {
             try {
@@ -231,10 +243,65 @@
                 if (sData.status === 'success') {
                     renderSectors(sData.sectors);
                 }
-            } catch (e) {
-                console.error("Fetch failed", e);
-            }
+            } catch (e) { console.error(e); }
         }
+
+        function renderMarket(data) {
+            const tbody = document.getElementById('market-tbody');
+            tbody.innerHTML = data.map(p => {
+                const isPos = p.change >= 0;
+                return `
+                    <tr onclick="openChart('${p.symbol}')">
+                        <td><span class="symbol">${p.symbol}</span></td>
+                        <td class="price">${p.price.toLocaleString()}</td>
+                        <td class="${isPos ? 'positive' : 'negative'}">${isPos ? '+' : ''}${p.change}</td>
+                        <td class="${isPos ? 'positive' : 'negative'}">${isPos ? '+' : ''}${p.percent_change}%</td>
+                        <td class="price">${p.volume.toLocaleString()}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        async function openChart(symbol) {
+            document.getElementById('chart-modal').style.display = 'block';
+            document.getElementById('modal-title').textContent = `${symbol} Technical Analysis`;
+            document.getElementById('chart-container').innerHTML = '';
+            
+            try {
+                const [hRes, fRes] = await Promise.all([
+                    fetch(`${BASE_URL}/api/history/${symbol}`),
+                    fetch(`${BASE_URL}/api/fundamentals/${symbol}`)
+                ]);
+                
+                const history = await hRes.json();
+                const fund = await fRes.json();
+
+                if (history && history.length) {
+                    renderChart(history);
+                }
+                
+                document.getElementById('fundamental-bar').innerHTML = `
+                    <div class="mini-stat"><label>MARKET CAP</label><span>${fund.market_cap || 'N/A'}</span></div>
+                    <div class="mini-stat"><label>EPS</label><span>${fund.eps_ttm || 'N/A'}</span></div>
+                    <div class="mini-stat"><label>P/E</label><span>${fund.pe_ratio || 'N/A'}</span></div>
+                    <div class="mini-stat"><label>BOOK VALUE</label><span>${fund.book_value || 'N/A'}</span></div>
+                `;
+            } catch (e) { console.error(e); }
+        }
+
+        function renderChart(data) {
+            const container = document.getElementById('chart-container');
+            const chart = LightweightCharts.createChart(container, {
+                layout: { background: { color: '#000' }, textColor: '#8b949e' },
+                grid: { vertLines: { color: '#161b22' }, horzLines: { color: '#161b22' } },
+                timeScale: { borderColor: '#30363d' }
+            });
+            const series = chart.addCandlestickSeries({ upColor: '#3fb950', downColor: '#f85149', borderVisible: false });
+            series.setData(data.map(d => ({ time: d.time, open: d.open, high: d.high, low: d.low, close: d.close })));
+            chart.timeScale().fitContent();
+        }
+
+        function closeModal() { document.getElementById('chart-modal').style.display = 'none'; }
 
         function renderSummary(s) {
             document.getElementById('index-val').textContent = s.index_value.toLocaleString();
@@ -248,97 +315,9 @@
             const container = document.getElementById('sectors-container');
             container.innerHTML = sectors.map(s => {
                 const isPos = s.change >= 0;
-                return `
-                    <div class="market-item" style="display:flex; justify-content:space-between; padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 0.8rem;">
-                        <span>${s.sector}</span>
-                        <span class="${isPos ? 'positive' : 'negative'}">${isPos ? '+' : ''}${s.percent_change}%</span>
-                    </div>
-                `;
+                return `<div style="display:flex; justify-content:space-between; padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 0.8rem;"><span>${s.sector}</span><span class="${isPos ? 'positive' : 'negative'}">${isPos ? '+' : ''}${s.percent_change}%</span></div>`;
             }).join('');
         }
-
-        function renderMarket(data) {
-            const tbody = document.getElementById('market-tbody');
-            tbody.innerHTML = data.map(p => {
-                const isPos = p.change >= 0;
-                return `
-                    <tr>
-                        <td><span class="symbol" onclick="openChart('${p.symbol}')">${p.symbol}</span></td>
-                        <td class="price">${p.price.toLocaleString()}</td>
-                        <td class="${isPos ? 'positive' : 'negative'}">${isPos ? '+' : ''}${p.change}</td>
-                        <td class="${isPos ? 'positive' : 'negative'}">${isPos ? '+' : ''}${p.percent_change}%</td>
-                        <td class="price">${p.volume.toLocaleString()}</td>
-                    </tr>
-                `;
-            }).join('');
-        }
-
-        // --- CHART LOGIC ---
-        async function openChart(symbol) {
-            document.getElementById('chart-modal').style.display = 'block';
-            document.getElementById('chart-title').textContent = `${symbol} Technical Chart`;
-            const container = document.getElementById('chart-container');
-            container.innerHTML = '<div style="padding: 20px; color: var(--text-dim);">Loading technical data...</div>';
-
-            try {
-                const res = await fetch(`${BASE_URL}/api/history/${symbol}`);
-                const data = await res.json();
-                if (data && data.length > 0) {
-                    renderTechnicalChart(data);
-                } else {
-                    container.innerHTML = '<div style="padding: 20px;">No historical data available for this symbol.</div>';
-                }
-            } catch (e) {
-                container.innerHTML = '<div style="padding: 20px;">Failed to load chart data.</div>';
-            }
-        }
-
-        function renderTechnicalChart(data) {
-            const container = document.getElementById('chart-container');
-            container.innerHTML = '';
-            
-            const chart = LightweightCharts.createChart(container, {
-                layout: {
-                    background: { color: '#0d1117' },
-                    textColor: '#8b949e',
-                },
-                grid: {
-                    vertLines: { color: '#161b22' },
-                    horzLines: { color: '#161b22' },
-                },
-                timeScale: {
-                    borderColor: '#30363d',
-                },
-            });
-
-            const candleSeries = chart.addCandlestickSeries({
-                upColor: '#3fb950',
-                downColor: '#f85149',
-                borderVisible: false,
-                wickUpColor: '#3fb950',
-                wickDownColor: '#f85149',
-            });
-
-            candleSeries.setData(data.map(d => ({
-                time: d.time,
-                open: d.open,
-                high: d.high,
-                low: d.low,
-                close: d.close
-            })));
-
-            chart.timeScale().fitContent();
-        }
-
-        document.getElementById('close-modal').onclick = () => {
-            document.getElementById('chart-modal').style.display = 'none';
-        };
-
-        window.onclick = (event) => {
-            if (event.target == document.getElementById('chart-modal')) {
-                document.getElementById('chart-modal').style.display = 'none';
-            }
-        };
 
         document.getElementById('search').addEventListener('input', (e) => {
             const term = e.target.value.toLowerCase();
