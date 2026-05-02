@@ -261,7 +261,16 @@
                     <button id="toggle-key-btn" class="btn-analyze">SHOW</button>
                     <button id="copy-btn" class="btn-analyze">COPY</button>
                 </div>
-                <button id="generate-btn" class="primary-btn" style="width:100%">GENERATE NEW ACCESS KEY</button>
+                
+                <div class="form-group">
+                    <label>Key Permission Scope</label>
+                    <select id="api-scope-select" class="terminal-input">
+                        <option value="all">Full Access (Market + Sector)</option>
+                        <option value="market">Market Data Only</option>
+                        <option value="sector">Sector Data Only</option>
+                    </select>
+                </div>
+                <button id="generate-btn" class="primary-btn" style="width:100%">GENERATE / REFRESH KEY</button>
             </div>
         </div>
     </div>

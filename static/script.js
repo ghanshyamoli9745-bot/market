@@ -1,6 +1,6 @@
 /**
  * NEPSE PRO TERMINAL - FULL FEATURE ENGINE
- * Professional Terminal with Sidebar Modules, Portfolio, and Alerts
+ * Updated with Advanced API Key System & Cross-Device Sync
  */
 
 const API_BASE = '/api';
@@ -11,16 +11,15 @@ const State = {
     currentSearch: '',
     currentModalSymbol: null,
     clientId: localStorage.getItem('nepse-pro-client-id') || (Math.random().toString(36).substring(2) + Date.now().toString(36)),
+    userEmail: localStorage.getItem('nepse-pro-email') || '',
     apiKey: '',
+    apiScope: 'all',
     currentModule: 'market',
     currentFilter: 'LIVE MARKET',
     watchlist: new Set(),
-    portfolio: [], // {symbol, units, buyPrice}
+    portfolio: [],
     alerts: []
 };
-
-// Ensure clientId is persistent
-localStorage.setItem('nepse-pro-client-id', State.clientId);
 
 // DOM Cache
 const UI = {
@@ -57,20 +56,20 @@ const UI = {
     detailModal: document.getElementById('detail-modal'),
     apiModal: document.getElementById('api-modal'),
     apiBtn: document.getElementById('api-btn'),
-    apiKeyCode: document.getElementById('api-key-code')
+    apiKeyCode: document.getElementById('api-key-code'),
+    apiEmailInput: document.getElementById('api-email-input'),
+    apiScopeSelect: document.getElementById('api-scope-select')
 };
 
 // --- INITIALIZATION ---
 
 function init() {
-    console.log("Terminal Engine V2 Starting...");
     initFirebase();
     setupEventListeners();
     startClock();
     fetchInitialData();
     document.getElementById('display-client-id').textContent = State.clientId;
-    
-    // Refresh Lucide icons after dynamic updates
+    if (State.userEmail) UI.apiEmailInput.value = State.userEmail;
     if (window.lucide) lucide.createIcons();
 }
 
@@ -81,23 +80,15 @@ async function fetchInitialData() {
             const data = await res.json();
             processMarketData(data);
         }
-    } catch (e) {
-        console.error("Initial data load failed", e);
-    } finally {
-        hideLoader();
-    }
+    } catch (e) { console.error(e); }
+    finally { hideLoader(); }
 }
 
 function setupEventListeners() {
-    // Module Navigation
     UI.navItems.forEach(item => {
-        item.addEventListener('click', () => {
-            const module = item.getAttribute('data-module');
-            switchModule(module);
-        });
+        item.addEventListener('click', () => switchModule(item.getAttribute('data-module')));
     });
 
-    // Market Filters
     document.querySelectorAll('.tab[data-filter]').forEach(tab => {
         tab.addEventListener('click', () => {
             document.querySelectorAll('.tab[data-filter]').forEach(t => t.classList.remove('active'));
@@ -107,48 +98,82 @@ function setupEventListeners() {
         });
     });
 
-    // Search
     UI.searchInput.addEventListener('input', (e) => {
         State.currentSearch = e.target.value.toLowerCase();
         renderMainTable();
     });
 
-    // API Modal
     UI.apiBtn.addEventListener('click', () => UI.apiModal.style.display = 'block');
-    document.getElementById('verify-email-btn').addEventListener('click', verifyIdentity);
+    document.getElementById('verify-email-btn').addEventListener('click', syncUserKey);
     document.getElementById('toggle-key-btn').addEventListener('click', toggleApiKey);
     document.getElementById('copy-btn').addEventListener('click', copyApiKey);
-    document.getElementById('generate-btn').addEventListener('click', generateKey);
+    document.getElementById('generate-btn').addEventListener('click', generateScopedKey);
 
-    // Portfolio Modal
     UI.addPBtn.addEventListener('click', () => UI.pModal.style.display = 'block');
     document.getElementById('p-save-btn').addEventListener('click', saveToPortfolio);
 
-    // Global Modal Close
-    window.onclick = (e) => {
-        if (e.target.classList.contains('modal')) {
-            e.target.style.display = 'none';
+    window.onclick = (e) => { if (e.target.classList.contains('modal')) e.target.style.display = 'none'; };
+    document.querySelectorAll('.close-modal').forEach(btn => btn.onclick = () => document.querySelectorAll('.modal').forEach(m => m.style.display = 'none'));
+}
+
+// --- SYNC & API ---
+
+async function syncUserKey() {
+    const email = UI.apiEmailInput.value.trim().toLowerCase();
+    if (!email) return notify("Email required for sync", "danger");
+
+    try {
+        const res = await fetch(`${API_BASE}/auth/sync?email=${email}`);
+        const data = await res.json();
+        if (data.api_key) {
+            State.userEmail = email;
+            State.apiKey = data.api_key;
+            State.apiScope = data.scope;
+            localStorage.setItem('nepse-pro-email', email);
+            
+            UI.apiKeyCode.value = State.apiKey;
+            UI.apiScopeSelect.value = State.apiScope;
+            document.getElementById('api-key-display').style.display = 'block';
+            document.getElementById('api-auth-section').style.display = 'none';
+            notify("Identity Verified & Keys Synced", "success");
+            
+            // Sync to Firebase for cross-device persistence
+            firebase.database().ref(`clients/${State.clientId}`).update({ 
+                email: State.userEmail,
+                api_key: State.apiKey,
+                api_scope: State.apiScope
+            });
         }
-    };
-    document.querySelectorAll('.close-modal').forEach(btn => {
-        btn.onclick = () => {
-            document.querySelectorAll('.modal').forEach(m => m.style.display = 'none');
-        };
-    });
+    } catch (e) { notify("Sync Failed", "danger"); }
+}
+
+async function generateScopedKey() {
+    const email = State.userEmail;
+    const scope = UI.apiScopeSelect.value;
+    
+    try {
+        const res = await fetch(`${API_BASE}/auth/generate?email=${email}&scope=${scope}`);
+        const data = await res.json();
+        if (data.api_key) {
+            State.apiKey = data.api_key;
+            State.apiScope = data.scope;
+            UI.apiKeyCode.value = State.apiKey;
+            notify(`New ${scope} key generated!`);
+            
+            firebase.database().ref(`clients/${State.clientId}`).update({ 
+                api_key: State.apiKey,
+                api_scope: State.apiScope
+            });
+        }
+    } catch (e) { notify("Generation failed", "danger"); }
 }
 
 // --- CORE LOGIC ---
 
 function switchModule(moduleName) {
     State.currentModule = moduleName;
-    UI.navItems.forEach(item => {
-        item.classList.toggle('active', item.getAttribute('data-module') === moduleName);
-    });
-    UI.modules.forEach(mod => {
-        mod.classList.toggle('active', mod.id === `module-${moduleName}`);
-    });
-    
-    // Trigger specific module renders
+    UI.navItems.forEach(item => item.classList.toggle('active', item.getAttribute('data-module') === moduleName));
+    UI.modules.forEach(mod => mod.classList.toggle('active', mod.id === `module-${moduleName}`));
     if (moduleName === 'portfolio') renderPortfolio();
     if (moduleName === 'alerts') renderAlertsModule();
 }
@@ -160,11 +185,9 @@ function initFirebase() {
         databaseURL: "https://stock-market-e710b-default-rtdb.firebaseio.com",
         projectId: "stock-market-e710b"
     };
-
     if (!firebase.apps.length) firebase.initializeApp(config);
     const db = firebase.database();
     
-    // User Settings & Assets
     db.ref(`clients/${State.clientId}`).on('value', (snap) => {
         const val = snap.val();
         if (val) {
@@ -172,20 +195,13 @@ function initFirebase() {
             if (val.watchlist) State.watchlist = new Set(Object.keys(val.watchlist));
             if (val.portfolio) State.portfolio = Object.values(val.portfolio);
             if (val.alerts) State.alerts = Object.values(val.alerts);
-            
-            renderMainTable();
-            renderPortfolio();
-            renderAlertsModule();
+            renderMainTable(); renderPortfolio(); renderAlertsModule();
         }
     });
 
-    // Market Stream
     db.ref('dashboard').on('value', (snap) => {
         const data = snap.val();
-        if (data) {
-            processMarketData(data);
-            hideLoader();
-        }
+        if (data) { processMarketData(data); hideLoader(); }
     });
 }
 
@@ -193,8 +209,7 @@ function processMarketData(data) {
     if (data.summary) renderSummary(data.summary);
     if (data.prices) {
         State.marketData = data.prices;
-        renderMainTable();
-        renderTicker();
+        renderMainTable(); renderTicker();
         if (State.currentModule === 'portfolio') renderPortfolio();
     }
     if (data.gainers) renderRankList(data.gainers, UI.gainersList, true);
@@ -209,10 +224,8 @@ function renderSummary(s) {
     const isPos = s.change >= 0;
     UI.nepseChange.textContent = `${isPos ? '▲' : '▼'} ${Math.abs(s.change)} (${s.percent_change}%)`;
     UI.nepseChange.className = isPos ? 'positive-text' : 'negative-text';
-    
     UI.totalTurnover.textContent = 'Rs. ' + (parseFloat(s.total_turnover || 0) / 10000000).toFixed(2) + ' Cr';
     UI.totalScripts.textContent = s.total_scripts || 0;
-    
     const isOpen = s.market_status === 'OPEN';
     UI.statusDot.className = `dot ${isOpen ? 'open' : 'closed'}`;
     UI.statusText.textContent = s.market_status || 'OFFLINE';
@@ -220,23 +233,10 @@ function renderSummary(s) {
 
 function renderMainTable() {
     let data = [...State.marketData];
-    
-    if (State.currentFilter === 'TOP GAINERS') {
-        data.sort((a, b) => parseFloat(b.percent_change || 0) - parseFloat(a.percent_change || 0));
-    } else if (State.currentFilter === 'TOP LOSERS') {
-        data.sort((a, b) => parseFloat(a.percent_change || 0) - parseFloat(b.percent_change || 0));
-    }
-    
-    if (State.currentSearch) {
-        data = data.filter(d => 
-            d.symbol.toLowerCase().includes(State.currentSearch) || 
-            (d.name && d.name.toLowerCase().includes(State.currentSearch))
-        );
-    }
-
-    if (State.currentModule === 'watchlist') {
-        data = data.filter(d => State.watchlist.has(d.symbol));
-    }
+    if (State.currentFilter === 'TOP GAINERS') data.sort((a, b) => b.percent_change - a.percent_change);
+    else if (State.currentFilter === 'TOP LOSERS') data.sort((a, b) => a.percent_change - b.percent_change);
+    if (State.currentSearch) data = data.filter(d => d.symbol.toLowerCase().includes(State.currentSearch) || (d.name && d.name.toLowerCase().includes(State.currentSearch)));
+    if (State.currentModule === 'watchlist') data = data.filter(d => State.watchlist.has(d.symbol));
 
     UI.mainTbody.innerHTML = data.map(item => {
         const isPos = item.change >= 0;
@@ -262,20 +262,11 @@ function renderMainTable() {
 
 function renderPortfolio() {
     if (!UI.portfolioTbody) return;
-    
-    let totalVal = 0;
-    let totalCost = 0;
-
+    let totalVal = 0, totalCost = 0;
     UI.portfolioTbody.innerHTML = State.portfolio.map(item => {
         const live = State.marketData.find(p => p.symbol === item.symbol) || { price: item.buyPrice, percent_change: 0 };
-        const currentVal = item.units * live.price;
-        const cost = item.units * item.buyPrice;
-        const pl = currentVal - cost;
-        const plPercent = ((pl / cost) * 100).toFixed(2);
-        
-        totalVal += currentVal;
-        totalCost += cost;
-
+        const currentVal = item.units * live.price, cost = item.units * item.buyPrice, pl = currentVal - cost, plPercent = ((pl / cost) * 100).toFixed(2);
+        totalVal += currentVal; totalCost += cost;
         return `
             <tr>
                 <td><span class="symbol-tag">${item.symbol}</span></td>
@@ -289,7 +280,6 @@ function renderPortfolio() {
             </tr>
         `;
     }).join('');
-
     UI.pTotalValue.textContent = 'Rs. ' + totalVal.toLocaleString();
     const totalPL = totalVal - totalCost;
     UI.pTotalPL.textContent = (totalPL >= 0 ? '+' : '') + totalPL.toLocaleString();
@@ -315,11 +305,8 @@ async function saveToPortfolio() {
     const symbol = document.getElementById('p-input-symbol').value.toUpperCase();
     const units = parseFloat(document.getElementById('p-input-units').value);
     const buyPrice = parseFloat(document.getElementById('p-input-price').value);
-
     if (symbol && units && buyPrice) {
-        await firebase.database().ref(`clients/${State.clientId}/portfolio/${symbol}`).set({
-            symbol, units, buyPrice
-        });
+        await firebase.database().ref(`clients/${State.clientId}/portfolio/${symbol}`).set({ symbol, units, buyPrice });
         UI.pModal.style.display = 'none';
         notify(`Added ${symbol} to portfolio`);
     }
@@ -351,31 +338,13 @@ function openAlertPrompt(symbol, currentPrice) {
     }
 }
 
-async function removeAlert(id) {
-    await firebase.database().ref(`clients/${State.clientId}/alerts/${id}`).remove();
-    notify(`Alert cleared`);
-}
+async function removeAlert(id) { await firebase.database().ref(`clients/${State.clientId}/alerts/${id}`).remove(); notify(`Alert cleared`); }
 
 // --- UTILS ---
 
-function startClock() {
-    setInterval(() => {
-        UI.clock.textContent = new Date().toLocaleTimeString('en-US', { hour12: false });
-    }, 1000);
-}
-
-function hideLoader() {
-    UI.loader.style.opacity = '0';
-    setTimeout(() => UI.loader.style.display = 'none', 500);
-}
-
-function formatVol(v) {
-    const n = parseFloat(v || 0);
-    if (n >= 1000000) return (n/1000000).toFixed(2) + 'M';
-    if (n >= 1000) return (n/1000).toFixed(1) + 'K';
-    return n.toLocaleString();
-}
-
+function startClock() { setInterval(() => { UI.clock.textContent = new Date().toLocaleTimeString('en-US', { hour12: false }); }, 1000); }
+function hideLoader() { UI.loader.style.opacity = '0'; setTimeout(() => UI.loader.style.display = 'none', 500); }
+function formatVol(v) { const n = parseFloat(v || 0); if (n >= 1000000) return (n/1000000).toFixed(2) + 'M'; if (n >= 1000) return (n/1000).toFixed(1) + 'K'; return n.toLocaleString(); }
 function notify(msg, type = 'info') {
     const toast = document.createElement('div');
     toast.className = `toast toast-${type}`;
@@ -384,45 +353,11 @@ function notify(msg, type = 'info') {
     setTimeout(() => toast.remove(), 4000);
 }
 
-function renderRankList(data, container, isPositive) {
-    container.innerHTML = data.slice(0, 10).map(item => `
-        <div class="rank-item">
-            <strong>${item.symbol}</strong>
-            <span class="${isPositive ? 'positive-text' : 'negative-text'}">${isPositive ? '+' : ''}${item.percent_change}%</span>
-        </div>
-    `).join('');
-}
-
-function renderSectors(sectors) {
-    UI.sectorsList.innerHTML = sectors.slice(0, 10).map(s => `
-        <div class="rank-item">
-            <span>${s.sector}</span>
-            <span class="${parseFloat(s.percent_change) >= 0 ? 'positive-text' : 'negative-text'}">${s.percent_change}%</span>
-        </div>
-    `).join('');
-}
-
+function renderRankList(data, container, isPositive) { container.innerHTML = data.slice(0, 10).map(item => `<div class="rank-item"><strong>${item.symbol}</strong><span class="${isPositive ? 'positive-text' : 'negative-text'}">${isPositive ? '+' : ''}${item.percent_change}%</span></div>`).join(''); }
+function renderSectors(sectors) { UI.sectorsList.innerHTML = sectors.slice(0, 10).map(s => `<div class="rank-item"><span>${s.sector}</span><span class="${parseFloat(s.percent_change) >= 0 ? 'positive-text' : 'negative-text'}">${s.percent_change}%</span></div>`).join(''); }
 function renderTicker() {
     const items = State.marketData.slice(0, 30);
-    UI.ticker.innerHTML = [...items, ...items].map(item => `
-        <span class="ticker-item">
-            ${item.symbol} <span style="color:var(--text-primary)">${item.price}</span> 
-            <span class="${item.change >= 0 ? 'positive-text' : 'negative-text'}">${item.change >= 0 ? '▲' : '▼'}${Math.abs(item.percent_change)}%</span>
-        </span>
-    `).join('');
-}
-
-// --- MODALS & API ---
-
-async function verifyIdentity() {
-    const email = document.getElementById('api-email-input').value.trim().toLowerCase();
-    if (email === 'ghanshyamoli922@gmail.com') {
-        document.getElementById('api-key-display').style.display = 'block';
-        document.getElementById('api-auth-section').style.display = 'none';
-        notify("Access Granted", "success");
-    } else {
-        notify("Invalid Authorization", "danger");
-    }
+    UI.ticker.innerHTML = [...items, ...items].map(item => `<span class="ticker-item">${item.symbol} <span style="color:var(--text-primary)">${item.price}</span> <span class="${item.change >= 0 ? 'positive-text' : 'negative-text'}">${item.change >= 0 ? '▲' : '▼'}${Math.abs(item.percent_change)}%</span></span>`).join('');
 }
 
 function toggleApiKey() {
@@ -439,40 +374,16 @@ async function copyApiKey() {
     setTimeout(() => btn.textContent = 'COPY', 2000);
 }
 
-async function generateKey() {
-    const btn = document.getElementById('generate-btn');
-    btn.textContent = 'GENERATING...';
-    try {
-        const res = await fetch(`${API_BASE}/generate-key`);
-        const data = await res.json();
-        if (data.api_key) {
-            State.apiKey = data.api_key;
-            await firebase.database().ref(`clients/${State.clientId}`).update({ api_key: State.apiKey });
-            UI.apiKeyCode.value = State.apiKey;
-            notify("Key Sync Successful");
-        }
-    } catch (e) { console.error(e); }
-    btn.textContent = 'GENERATE NEW ACCESS KEY';
-}
-
 async function openSymbolAnalysis(symbol) {
     UI.detailModal.style.display = 'block';
     document.getElementById('modal-company-name').textContent = symbol;
     document.getElementById('modal-company-symbol').textContent = 'LOADING...';
     try {
-        const [fRes, hRes] = await Promise.allSettled([
-            fetch(`${API_BASE}/fundamentals/${symbol}`),
-            fetch(`${API_BASE}/history/${symbol}`)
-        ]);
+        const [fRes, hRes] = await Promise.allSettled([fetch(`${API_BASE}/fundamentals/${symbol}`), fetch(`${API_BASE}/history/${symbol}`)]);
         let fund = fRes.status === 'fulfilled' && fRes.value.ok ? await fRes.value.json() : {};
         let history = hRes.status === 'fulfilled' && hRes.value.ok ? await hRes.value.json() : [];
         document.getElementById('modal-company-symbol').textContent = fund.sector || 'EQUITY';
-        document.getElementById('fundamental-grid').innerHTML = [
-            { label: 'MARKET CAP', val: fund.market_cap },
-            { label: 'EPS (TTM)', val: fund.eps_ttm },
-            { label: 'P/E RATIO', val: fund.pe_ratio },
-            { label: 'BOOK VALUE', val: fund.book_value }
-        ].map(m => `<div class="mini-stat"><label>${m.label}</label><span>${m.val || 'N/A'}</span></div>`).join('');
+        document.getElementById('fundamental-grid').innerHTML = [{ label: 'MARKET CAP', val: fund.market_cap }, { label: 'EPS (TTM)', val: fund.eps_ttm }, { label: 'P/E RATIO', val: fund.pe_ratio }, { label: 'BOOK VALUE', val: fund.book_value }].map(m => `<div class="mini-stat"><label>${m.label}</label><span>${m.val || 'N/A'}</span></div>`).join('');
         document.getElementById('m-business').textContent = fund.business_model || 'Analysis pending...';
         document.getElementById('m-future').textContent = fund.future_growth || 'Projection pending...';
         initChart(history, symbol);
@@ -483,11 +394,7 @@ function initChart(data, symbol) {
     const container = document.getElementById('company-chart');
     container.innerHTML = '';
     if (!data.length) return;
-    const chart = LightweightCharts.createChart(container, {
-        layout: { background: { color: '#050608' }, textColor: '#8b949e' },
-        grid: { vertLines: { color: '#161b22' }, horzLines: { color: '#161b22' } },
-        timeScale: { borderColor: '#30363d' }
-    });
+    const chart = LightweightCharts.createChart(container, { layout: { background: { color: '#050608' }, textColor: '#8b949e' }, grid: { vertLines: { color: '#161b22' }, horzLines: { color: '#161b22' } }, timeScale: { borderColor: '#30363d' } });
     const series = chart.addCandlestickSeries({ upColor: '#3fb950', downColor: '#f85149', borderVisible: false, wickUpColor: '#3fb950', wickDownColor: '#f85149' });
     series.setData(data.map(d => ({ time: d.time, open: d.open, high: d.high, low: d.low, close: d.close })));
     chart.timeScale().fitContent();
