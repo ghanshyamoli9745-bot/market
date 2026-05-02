@@ -2,53 +2,79 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>API Test Widget</title>
+    <title>Universal API Test Console</title>
     <style>
-        body { background: #050608; color: #e6edf3; font-family: sans-serif; padding: 20px; }
-        .card { border: 1px solid #30363d; padding: 15px; border-radius: 8px; max-width: 400px; }
-        .positive { color: #3fb950; }
-        .negative { color: #f85149; }
-        pre { background: #0d1117; padding: 10px; border-radius: 4px; overflow: auto; font-size: 12px; }
+        body { background: #050608; color: #e6edf3; font-family: 'Segoe UI', sans-serif; padding: 20px; display: flex; justify-content: center; }
+        .card { background: #0d1117; border: 1px solid #30363d; padding: 25px; border-radius: 12px; width: 100%; max-width: 500px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        h3 { margin-top: 0; color: #2f81f7; font-size: 1.2rem; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; font-size: 0.75rem; color: #8b949e; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 1px; }
+        input { width: 100%; padding: 10px; background: #050608; border: 1px solid #30363d; border-radius: 6px; color: white; outline: none; box-sizing: border-box; }
+        input:focus { border-color: #2f81f7; }
+        .btn-group { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 20px; }
+        button { padding: 12px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; transition: 0.2s; background: #21262d; color: #c9d1d9; border: 1px solid #30363d; }
+        button:hover { background: #30363d; border-color: #8b949e; }
+        button.primary { background: #238636; color: white; border: none; }
+        button.primary:hover { background: #2ea043; }
+        #output-container { margin-top: 20px; padding: 15px; background: #050608; border-radius: 6px; border: 1px solid #30363d; min-height: 50px; }
+        pre { margin: 0; font-size: 12px; overflow: auto; max-height: 300px; color: #7ee787; }
+        .error { color: #f85149; font-weight: bold; }
+        .success { color: #3fb950; font-weight: bold; }
     </style>
 </head>
 <body>
     <div class="card">
-        <h3>Universal API Test</h3>
-        <input type="text" id="api-key" value="cee7c7f1-2749-471f-b763-ca87d871c5c4" placeholder="Paste API Key Here" style="width:100%; padding:8px; margin-bottom:10px; background:#0d1117; border:1px solid #30363d; color:white;">
-        <button onclick="testMarket()" style="padding:8px 15px; cursor:pointer;">Test Market API</button>
-        <button onclick="testSectors()" style="padding:8px 15px; cursor:pointer;">Test Sector API</button>
-        <div id="output" style="margin-top:15px;"></div>
+        <h3>NEPSE PRO | API Console</h3>
+        
+        <div class="form-group">
+            <label>Server URL</label>
+            <input type="text" id="server-url" value="http://localhost:8000" placeholder="e.g. http://localhost:8000">
+        </div>
+
+        <div class="form-group">
+            <label>API Key</label>
+            <input type="text" id="api-key" value="cee7c7f1-2749-471f-b763-ca87d871c5c4" placeholder="Paste your key here">
+        </div>
+
+        <div class="btn-group">
+            <button class="primary" onclick="testAPI('market')">Test Market API</button>
+            <button class="primary" onclick="testAPI('sectors')">Test Sector API</button>
+        </div>
+
+        <div id="output-container">
+            <div id="status" style="margin-bottom: 10px; font-size: 0.8rem;">Ready to test...</div>
+            <pre id="json-output"></pre>
+        </div>
     </div>
 
     <script>
-        async function testMarket() {
+        async function testAPI(type) {
+            const server = document.getElementById('server-url').value.replace(/\/$/, "");
             const key = document.getElementById('api-key').value;
-            const out = document.getElementById('output');
-            out.innerHTML = "Fetching...";
-            try {
-                const res = await fetch(`/api/v1/market?api_key=${key}`);
-                const data = await res.json();
-                if (res.ok) {
-                    out.innerHTML = `<p class="positive">Success! Found ${data.prices.length} prices.</p><pre>${JSON.stringify(data.summary, null, 2)}</pre>`;
-                } else {
-                    out.innerHTML = `<p class="negative">Error: ${data.detail}</p>`;
-                }
-            } catch (e) { out.innerHTML = "Request failed"; }
-        }
+            const status = document.getElementById('status');
+            const output = document.getElementById('json-output');
 
-        async function testSectors() {
-            const key = document.getElementById('api-key').value;
-            const out = document.getElementById('output');
-            out.innerHTML = "Fetching...";
+            status.innerHTML = `Connecting to ${type} API...`;
+            status.className = "";
+            output.innerHTML = "";
+
+            const url = `${server}/api/v1/${type}?api_key=${key}`;
+
             try {
-                const res = await fetch(`/api/v1/sectors?api_key=${key}`);
+                const res = await fetch(url);
                 const data = await res.json();
+
                 if (res.ok) {
-                    out.innerHTML = `<p class="positive">Success! Found ${data.sectors.length} sectors.</p>`;
+                    status.innerHTML = `<span class="success">✓ SUCCESS:</span> Received ${type} data`;
+                    output.innerHTML = JSON.stringify(data, null, 2);
                 } else {
-                    out.innerHTML = `<p class="negative">Error: ${data.detail}</p>`;
+                    status.innerHTML = `<span class="error">✗ ERROR (${res.status}):</span> ${data.detail || 'Access Denied'}`;
+                    output.innerHTML = JSON.stringify(data, null, 2);
                 }
-            } catch (e) { out.innerHTML = "Request failed"; }
+            } catch (e) {
+                status.innerHTML = `<span class="error">✗ FAILED:</span> Could not connect to server. Check if local server is running or if the URL is correct.`;
+                console.error(e);
+            }
         }
     </script>
 </body>
